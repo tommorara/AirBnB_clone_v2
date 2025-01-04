@@ -1,90 +1,88 @@
-# Ensure that the necessary directories are created before configuring Nginx
-# Configures a web server for deployment of web_static.
+# Manifest that configures an nginx web server with an alias
 
-# Nginx configuration file
-# The Nginx configuration should be placed in a separate file, and you can use the file resource to manage it.
-$nginx_conf = "server {
-    listen 80 default_server;
-    listen [::]:80 default_server;
-    add_header X-Served-By ${hostname};
-    root   /var/www/html;
-    index  index.html index.htm;
+$html="
+<html lang='en'>
+    <head>
+        <title>Airbnb Clone</title>
+        <style>
+        .container {
+            margin: 0 auto;
+        }
+
+        .text {
+            font-size: 2em;
+            text-align: center;
+        }
+
+        hr {
+            border: 2px solid black;
+        }
+        </style>
+    </head>
+    <body>
+        <div class='container'>
+            <h1 class='text'>If this displays, it's functional. I am ${::facts['networking']['hostname']}</h1>
+            <hr>
+        </div>
+    </body>
+</html>
+"
+
+$alias_config="
     location /hbnb_static {
-        alias /data/web_static/current;
-        index index.html index.htm;
+        alias /data/web_static/current/;
     }
-    location /redirect_me {
-        return 301 https://th3-gr00t.tk;
-    }
-    error_page 404 /404.html;
-    location /404 {
-      root /var/www/html;
-      internal;
-    }
-}"
+"
 
-package { 'nginx':
-  ensure   => 'present',
-  provider => 'apt'
-} ->
-
-file { '/data':
-  ensure  => 'directory'
-} ->
-
-file { '/data/web_static':
-  ensure => 'directory'
-} ->
-
-file { '/data/web_static/releases':
-  ensure => 'directory'
-} ->
-
-file { '/data/web_static/releases/test':
-  ensure => 'directory'
-} ->
-
-file { '/data/web_static/shared':
-  ensure => 'directory'
-} ->
-
-file { '/data/web_static/releases/test/index.html':
-  ensure  => 'present',
-  content => "Holberton School Puppet\n"
-} ->
-
-file { '/data/web_static/current':
-  ensure => 'link',
-  target => '/data/web_static/releases/test'
-} ->
-
-exec { 'chown -R ubuntu:ubuntu /data/':
-  path => '/usr/bin/:/usr/local/bin/:/bin/'
+exec { 'update packages list':
+  command => '/usr/bin/apt-get update -y',
+  path    => '/usr/bin:/usr/sbin:/bin',
 }
 
-file { '/var/www':
-  ensure => 'directory'
-} ->
+package { 'nginx':
+  ensure => installed,
+  require => Exec['update packages list'],
+}
 
-file { '/var/www/html':
-  ensure => 'directory'
-} ->
+file { ['/data/',
+        '/data/web_static/',
+        '/data/web_static/shared/',
+        '/data/web_static/releases',
+        '/data/web_static/releases/test',]:
+    ensure  => 'directory',
+    owner   => 'ubuntu',
+    group   => 'ubuntu',
+    mode    => '0755',
+    require => Package['nginx'],
+    recurse => true,
+}
 
-file { '/var/www/html/index.html':
-  ensure  => 'present',
-  content => "Holberton School Nginx\n"
-} ->
+file { '/data/web_static/releases/test/index.html':
+    ensure  => 'present',
+    content => $html,
+    owner   => 'ubuntu',
+    group   => 'ubuntu',
+    mode    => '0644',
+    require => File['/data/web_static/releases/test'],
+}
 
-file { '/var/www/html/404.html':
-  ensure  => 'present',
-  content => "Ceci n'est pas une page\n"
-} ->
+file { '/data/web_static/current':
+    ensure  => 'link',
+    target  => '/data/web_static/releases/test',
+    require => File['/data/web_static/releases/test/index.html'],
+    owner   => 'ubuntu',
+    group   => 'ubuntu',
+}
 
-file { '/etc/nginx/sites-available/default':
-  ensure  => 'present',
-  content => $nginx_conf
-} ->
+exec { 'update_nginx_config':
+  command => "sed -i '/server_name _;/a ${alias_config}' /etc/nginx/sites-available/default",
+  unless  => 'grep -q "location /hbnb_static {" /etc/nginx/sites-available/default',
+  require => File['/data/web_static/current'],
+  path    => '/usr/bin:/usr/sbin:/bin',
+}
 
-exec { 'nginx restart':
-  path => '/etc/init.d/'
+service { 'nginx':
+    ensure    => 'running',
+    enable    => 'true',
+    subscribe => Exec['update_nginx_config'],
 }

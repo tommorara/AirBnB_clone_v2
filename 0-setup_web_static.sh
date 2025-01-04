@@ -1,27 +1,61 @@
 #!/usr/bin/env bash
-# Bash script that sets up your web servers for the deployment of web_static
-sudo apt-get update
-sudo apt-get -y install nginx
-sudo ufw allow 'Nginx HTTP'
+# Script that configures web servers for deployment
 
-sudo mkdir -p /data/
-sudo mkdir -p /data/web_static/
-sudo mkdir -p /data/web_static/releases/
-sudo mkdir -p /data/web_static/shared/
-sudo mkdir -p /data/web_static/releases/test/
-sudo touch /data/web_static/releases/test/index.html
-sudo echo "<html>
-  <head>
-  </head>
-  <body>
-    Holberton School
-  </body>
-</html>" | sudo tee /data/web_static/releases/test/index.html
+if [[ $EUID -ne 0 ]]; then
+    echo "You need to be root"
+    exit 1
+fi
 
-sudo ln -s -f /data/web_static/releases/test/ /data/web_static/current
+# Check if nginx is available before installing nginx
+command -v nginx > /dev/null
+if [[ $? -eq 1 ]]; then
+    apt install nginx -y
+fi
 
-sudo chown -R ubuntu:ubuntu /data/
+# Create the required directories
+mkdir -p /data/web_static/shared 2> /dev/null
+mkdir -p /data/web_static/releases/test 2> /dev/null
 
-sudo sed -i '/listen 80 default_server/a location /hbnb_static { alias /data/web_static/current/;}' /etc/nginx/sites-enabled/default
+# Dummy HTML used for test
+echo "
+<html lang='en'>
+    <head>
+        <title>AirBnB_clone_v2</title>
+        <style>
+        .container {
+            margin: 0 auto;
+        }
 
-sudo service nginx restart
+        .text {
+            font-size: 2em;
+            text-align: center;
+        }
+
+        hr {
+            border: 2px solid black;
+        }
+        </style>
+    </head>
+    <body>
+        <div class='container'>
+            <h1 class='text'>This is just a test. If this appears, then it's functional. I am $HOSTNAME</h1>
+            <hr>
+        </div>
+    </body>
+</html>
+" > /data/web_static/releases/test/index.html
+
+# Create symbolic link for current release
+ln -sf /data/web_static/releases/test /data/web_static/current
+
+# Grant user permissions over directories
+chown -R ubuntu:ubuntu /data
+
+# Update nginx configuration to add alias configuration
+grep -q "location /hbnb_static {" /etc/nginx/sites-available/default
+if [[ $? -eq 1 ]]; then
+    sed -i "/server_name _;/a \\\n\tlocation /hbnb_static {\n\t\talias /data/web_static/current/;\n\t}" /etc/nginx/sites-available/default
+fi
+
+# Restart nginx
+service nginx restart
